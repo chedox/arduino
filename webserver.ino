@@ -9,64 +9,70 @@ WiFiServer server(80);
 
 void setup() {
   Serial.begin(115200);
+  delay(1000); // Allow time for Serial Monitor to open
 
-  // Connect to Wi-Fi
-  Serial.println("Connecting to WiFi...");
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  unsigned long startAttemptTime = millis();
+  const unsigned long wifiTimeout = 15000; // 15 seconds timeout
+
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < wifiTimeout) {
     delay(500);
     Serial.print(".");
   }
 
-  // Print local IP address
-  Serial.println("");
-  Serial.println("WiFi connected.");
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nFailed to connect to WiFi.");
+    // Optional: ESP.restart(); or enter deep sleep
+    return;
+  }
+
+  Serial.println("\nWiFi connected.");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Start the server
   server.begin();
 }
 
 void loop() {
-  WiFiClient client = server.available(); // listen for incoming clients
+  WiFiClient client = server.available();
 
-  if (client) {
-    Serial.println("New client connected.");
-    String currentLine = "";
+  if (!client) {
+    return;
+  }
 
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
+  Serial.println("New client connected.");
 
-        if (c == '\n') {
-          if (currentLine.length() == 0) {
-            // HTTP headers
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
+  String request = "";
+  unsigned long timeout = millis() + 1000; // 1 second timeout for incoming data
 
-            // Web page content
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><title>ESP32 Web Server</title></head>");
-            client.println("<body><h1>Hello from ESP32!</h1></body></html>");
-
-            client.println();
-            break;
-          } else {
-            currentLine = "";
-          }
-        } else if (c != '\r') {
-          currentLine += c;
-        }
+  while (client.connected() && millis() < timeout) {
+    if (client.available()) {
+      char c = client.read();
+      request += c;
+      if (c == '\n' && request.endsWith("\r\n\r\n")) {
+        break;
       }
     }
-
-    // Close the connection
-    delay(1);
-    client.stop();
-    Serial.println("Client disconnected.");
   }
+
+  Serial.println("Request received:");
+  Serial.println(request);
+
+  // Send the HTTP response
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE html><html>");
+  client.println("<head><title>ESP32 Web Server</title></head>");
+  client.println("<body><h1>Hello from ESP32!</h1></body></html>");
+  client.println();
+
+  delay(10); // Short delay before closing
+  client.stop();
+  Serial.println("Client disconnected.");
 }
